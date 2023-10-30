@@ -1199,131 +1199,62 @@ static int tcp_sendmsg_fastopen(struct sock *sk, struct msghdr *msg,
 	return err;
 }
 
-pte_t* pt_logical_to_pte(unsigned long long logical_address) {
-	pgd_t *pgd;
-	p4d_t *p4d;
-	pud_t *pud;
-	pmd_t *pmd;
-	pte_t *ptep;
+void pt_walk_da(unsigned long long start, unsigned long long end, int level){
 
-	pgd = pgd_offset_pgd(swapper_pg_dir, logical_address);
-	if (pgd_none(*pgd) || pgd_bad(*pgd)) return -11;
-
-	p4d = p4d_offset(pgd, logical_address);
-	if(p4d_none(*p4d) || p4d_bad(*p4d)) return -12;
-
-	pud = pud_offset(p4d, logical_address);
-	if(pud_none(*pud) || pud_bad(*pud)) return -13;
-
-	pmd = pmd_offset(pud, logical_address);
-	if(pmd_none(*pmd) || pmd_bad(*pmd)) return -14;
-
-	ptep = pte_offset_kernel(pmd, logical_address);
-	//*ptep = clear_pte_bit(*ptep, __pgprot(PTE_VALID));
-	return ptep;
 }
 
+
 void pt_walk_disable(unsigned long long start, unsigned long long end, int level) {
+	int FIN_LEVEL = 5;
 	pgd_t *pgd;
 	p4d_t *p4d;
 	pud_t *pud;
 	pmd_t *pmd;
-	pte_t *pte;
 	pte_t *ptep;
 
-	pte_t *lptep;
+	if(level = FIN_LEVEL) {
+		// set pte invalid
+	} else {
+		for(int i = 0; i < end - start; i++){
+		}
+	}
 
 	unsigned long long ng;
 	unsigned long long n4;
 	unsigned long long nu;
 	unsigned long long nm;
-	unsigned long long nt;
+	unsigned long long ngt;
 
-	unsigned long long page_addr;
-	unsigned long long page_offset;
-	unsigned long long paddr;
-	unsigned long long logical_addr;
-	unsigned long long i, j, k, l, t;
 	pgd = (level == 0) ? pgd_offset(current->mm, start) : pgd_offset_pgd(swapper_pg_dir, start);
-	i = start;
-	do {
-		ng = pgd_addr_end(i, end);
-		if (pgd_none(*pgd) || pgd_bad(*pgd)) return -1;
-		p4d = p4d_offset(pgd, i);
-		j = i;
-		do {
-			n4 = p4d_addr_end(j, ng);
-			if (p4d_none(*p4d) || p4d_bad(*p4d)) return -2;
-			pud = pud_offset(p4d, j);
-			k = j;
-			do{
-				nu = pud_addr_end(k, n4);
-				if(pud_none(*pud) || pud_bad(*pud)) return -3;
-				pmd = pmd_offset(pud, k);
-				l = k;
-				do {
-					nm = pmd_addr_end(l, nu);
-					if(pmd_none(*pmd) || pmd_bad(*pmd)) return -4;
-					ptep = pte_offset_kernel(pmd, l);
-					t = l;
-					do{
-						page_addr = pte_val(*ptep) & PAGE_MASK;
-						page_offset = start & ~PAGE_MASK;
-						paddr = page_addr | page_offset;
-						logical_addr = paddr + PAGE_OFFSET;
 
-						lptep = pt_logical_to_pte(logical_addr);
-						*lptep = clear_pte_bit(*lptep, __pgprot(PTE_VALID));
-					} while (ptep++, t += PAGE_SIZE, t != nm && t < nm);
-				} while (pmd++, l = nm, l != nu);
-			} while (pud++, k = nu, k != n4);
-		} while(p4d++, j = n4, j != ng);
-	} while(pgd++, i = ng, i != end);
-
-			/*
 	for(unsigned long long i = start; i != end; i = ng) {
 		ng = pgd_addr_end(i, end);
 		if (pgd_none(*pgd) || pgd_bad(*pgd)) return -1;
 
 		p4d = p4d_offset(pgd, i);
-		for(unsigned long long j = i; j != ng; j = n4) {
+		for(unsigned long long j = i; j < ng; j = n4) {
 			n4 = p4d_addr_end(j, ng);
 			if (p4d_none(*p4d) || p4d_bad(*p4d)) return -2;
 
 			pud = pud_offset(p4d, j);
-			for(unsigned long long k = j; k != n4; k = nu) {
+			for(unsigned long long k = j; k < n4; k = nu) {
 				nu = pud_addr_end(k, n4);
 				if(pud_none(*pud) || pud_bad(*pud)) return -3;
 
 				pmd = pmd_offset(pud, k);
-				for(unsigned long long l = k; l != nu; l = nm) {
-					nm = pmd_addr_end(l, nu);
-					if(pmd_none(*pmd) || pmd_bad(*pmd)) return -4;
-
-					ptep = pte_offset_kernel(pmd, l);
-					page_addr = pte_val(*ptep) & PAGE_MASK;
-					page_offset = start & ~PAGE_MASK;
-					paddr = page_addr | page_offset;
-					
-					logical_address = paddr + PAGE_OFFSET;
-
-					if(level == 0) {
-						pt_disable_kernel_logical(logical_address);
-						
-					}
-				}
-				pud++;
+				// for here
 			}
 			p4d++;
 		}
 		pgd++;
-	}*/
+	}
 
 }
 
 
 int tcp_sendmsg_locked(struct sock *sk, struct msghdr *msg, size_t size)
 {
+
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct ubuf_info *uarg = NULL;
 	struct sk_buff *skb;
@@ -1364,7 +1295,82 @@ int tcp_sendmsg_locked(struct sock *sk, struct msghdr *msg, size_t size)
 		user_address = (unsigned long long) msg->msg_iter.iov->iov_base;
 		printk(KERN_DEBUG "User space address is %llu\n", user_address);
 
-		pt_walk_disable(user_address, user_address + size, 0)
+		pgd = pgd_offset(current->mm, user_address);
+		printk(KERN_INFO "\npgd is: %p\n", (void *)pgd);
+		//printk(KERN_INFO "pgd value: %llx\n", *pgd);
+		if (pgd_none(*pgd) || pgd_bad(*pgd)) return -1;
+		//descriptor = *pgd->pgd;
+		//if ((descriptor & 3) == 1) {
+		//	// handle block
+		//}
+
+		p4d = p4d_offset(pgd, user_address);
+		printk(KERN_INFO "\np4d is: %p\n", (void *)p4d);
+		//printk(KERN_INFO "p4d value: %llx\n", *p4d);
+		if(p4d_none(*p4d) || p4d_bad(*p4d)) return -6;
+
+		pud = pud_offset(p4d, user_address);
+		printk(KERN_INFO "\npud is: %p\n", (void *)pud);
+		//printk(KERN_INFO "pud value: %llx\n", (*pud).p4d);
+		if (pud_none(*pud) || pud_bad(*pud)) return -2;
+	//	descriptor = *pud;
+	//	if ((descriptor & 3) == 1) {
+	//		// handle block
+	//	}
+
+	    	pmd = pmd_offset(pud, user_address);
+		printk(KERN_INFO "\npmd is: %p\n", (void *)pmd);
+		//printk(KERN_INFO "pmd value: %llx\n",*pmd);
+		if (pmd_none(*pmd) || pmd_bad(*pmd)) return -3;
+	//	descriptor = *pmd;
+	//	if ((descriptor & 3) == 1) {
+	//		// handle block
+	//	}
+
+		ptep = pte_offset_kernel(pmd, user_address);
+		printk(KERN_INFO "\npte is: %p\n", (void *)ptep);
+		//printk(KERN_INFO "pte value: %llx\n",*ptep);
+		if (!ptep) return -4;
+		pfn = pte_pfn(*ptep);
+		
+		physical_address = (unsigned long long) ((pfn << PAGE_SHIFT) | ((PAGE_SIZE - 1) & user_address));
+		printk(KERN_DEBUG "physical address is %llx\n", physical_address);
+
+		logical_address = physical_address + PAGE_OFFSET;
+		pgd = pgd_offset_pgd(swapper_pg_dir, logical_address);
+		printk(KERN_INFO "\npgd is: %p\n", (void *)pgd);
+		//printk(KERN_INFO "pgd value: %llx\n", *pgd);
+		if (pgd_none(*pgd) || pgd_bad(*pgd)) return -1;
+	//	descriptor = *pgd;
+	//	if ((descriptor & 3) == 1) {
+	//		// handle block
+	//	}
+
+		p4d = p4d_offset(pgd, logical_address);
+		printk(KERN_INFO "\np4d is: %p\n", (void *)p4d);
+		//printk(KERN_INFO "p4d value: %llx\n", *p4d);
+		if(p4d_none(*p4d) || p4d_bad(*p4d)) return -6;
+
+		pud = pud_offset(p4d, logical_address);
+		printk(KERN_INFO "\npud is: %p\n", (void *)pud);
+		//printk(KERN_INFO "pud value: %llx\n", (*pud).p4d);
+		if (pud_none(*pud) || pud_bad(*pud)) return -2;
+	//	descriptor = *pud;
+	//	if ((descriptor & 3) == 1) {
+	//		// handle block
+	//	}
+
+	    	pmd = pmd_offset(pud, logical_address);
+		printk(KERN_INFO "\npmd is: %p\n", (void *)pmd);
+		//printk(KERN_INFO "pmd value: %llx\n",*pmd);
+		if (pmd_none(*pmd) || pmd_bad(*pmd)) return -3;
+	//	descriptor = *pmd;
+	//	if ((descriptor & 3) == 1) {
+	//		// handle block
+	//	}
+
+		ptep = pte_offset_kernel(pmd, logical_address);
+                *ptep = clear_pte_bit(*ptep, __pgprot(PTE_VALID));
 
 	}
 
