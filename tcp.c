@@ -1207,28 +1207,27 @@ pte_t* pt_logical_to_pte(unsigned long long logical_address) {
 	pte_t *ptep;
 
 	pgd = pgd_offset_pgd(swapper_pg_dir, logical_address);
-	if (pgd_none(*pgd) || pgd_bad(*pgd)) return -11;
+	if (pgd_none(*pgd) || pgd_bad(*pgd)) return NULL;
 
 	p4d = p4d_offset(pgd, logical_address);
-	if(p4d_none(*p4d) || p4d_bad(*p4d)) return -12;
+	if(p4d_none(*p4d) || p4d_bad(*p4d)) return NULL;
 
 	pud = pud_offset(p4d, logical_address);
-	if(pud_none(*pud) || pud_bad(*pud)) return -13;
+	if(pud_none(*pud) || pud_bad(*pud)) return NULL;
 
 	pmd = pmd_offset(pud, logical_address);
-	if(pmd_none(*pmd) || pmd_bad(*pmd)) return -14;
+	if(pmd_none(*pmd) || pmd_bad(*pmd)) return NULL;
 
 	ptep = pte_offset_kernel(pmd, logical_address);
 	//*ptep = clear_pte_bit(*ptep, __pgprot(PTE_VALID));
 	return ptep;
 }
 
-void pt_walk_disable(unsigned long long start, unsigned long long end, int level) {
+int pt_walk_disable(unsigned long long start, unsigned long long end, int level) {
 	pgd_t *pgd;
 	p4d_t *p4d;
 	pud_t *pud;
 	pmd_t *pmd;
-	pte_t *pte;
 	pte_t *ptep;
 
 	pte_t *lptep;
@@ -1237,7 +1236,6 @@ void pt_walk_disable(unsigned long long start, unsigned long long end, int level
 	unsigned long long n4;
 	unsigned long long nu;
 	unsigned long long nm;
-	unsigned long long nt;
 
 	unsigned long long page_addr;
 	unsigned long long page_offset;
@@ -1319,6 +1317,7 @@ void pt_walk_disable(unsigned long long start, unsigned long long end, int level
 		pgd++;
 	}*/
 
+	return 0;
 }
 
 
@@ -1336,16 +1335,8 @@ int tcp_sendmsg_locked(struct sock *sk, struct msghdr *msg, size_t size)
 
 	uint64_t getter;
 	uint64_t setter;
-	pgd_t *pgd;
-	p4d_t *p4d;
-	pud_t *pud;
-	pmd_t *pmd;
-	pte_t *ptep;
 	//unsigned long long descriptor;
 	unsigned long long user_address;
-	unsigned long long physical_address;
-	unsigned long long logical_address;
-	int pfn;
 
 	if(msg->msg_flags & MSG_ZEROCOPY && size && sock_flag(sk, SOCK_ZEROCOPY)) {
 
@@ -1364,7 +1355,7 @@ int tcp_sendmsg_locked(struct sock *sk, struct msghdr *msg, size_t size)
 		user_address = (unsigned long long) msg->msg_iter.iov->iov_base;
 		printk(KERN_DEBUG "User space address is %llu\n", user_address);
 
-		pt_walk_disable(user_address, user_address + size, 0)
+		pt_walk_disable(user_address, user_address + size, 0);
 
 	}
 
