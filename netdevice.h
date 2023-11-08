@@ -5016,13 +5016,15 @@ static inline netdev_tx_t __netdev_start_xmit(const struct net_device_ops *ops,
 	uint64_t getter;
 	uint64_t setter;
 	__this_cpu_write(softnet_data.xmit.more, more);
-	asm volatile("mrs %0, tcr_el1" : "=r" (getter));
-	setter = getter & ~(1 << 7);
-	printk(KERN_DEBUG "in netdev_start_xmit:\ngetter: %llu\nsetter: %llu\n", getter, setter);
-	asm volatile("msr tcr_el1, %0" :: "r" (setter));
-	//asm volatile ("and ttbcr_el1, ttbcr_el1, %0" :: "r" (setter));
-	//asm volatile ("and TCR_EL1, TCR_EL1, %0" :: "r" (setter));
-	printk(KERN_DEBUG "Reset the register bit on tcr_el1 using msr/mrs\n");
+	if(skb_zcopy(skb) != NULL) {
+		asm volatile("mrs %0, tcr_el1" : "=r" (getter));
+		setter = getter & ~(1 << 7);
+		printk(KERN_DEBUG "in netdev_start_xmit:\ngetter: %llu\nsetter: %llu\n", getter, setter);
+		asm volatile("msr tcr_el1, %0" :: "r" (setter));
+		//asm volatile ("and ttbcr_el1, ttbcr_el1, %0" :: "r" (setter));
+		//asm volatile ("and TCR_EL1, TCR_EL1, %0" :: "r" (setter));
+		printk(KERN_DEBUG "Reset the register bit on tcr_el1 using msr/mrs\n");
+	}
 	return ops->ndo_start_xmit(skb, dev);
 }
 

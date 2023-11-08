@@ -1232,10 +1232,13 @@ int pt_walk_disable(unsigned long long start, unsigned long long end, int level)
 
 	pte_t *lptep;
 
+
 	unsigned long long ng;
 	unsigned long long n4;
 	unsigned long long nu;
 	unsigned long long nm;
+	unsigned int descriptor;
+	unsigned int desc_mask = (1 << 2) - 1; // last 2 bits; equals 3
 
 	unsigned long long page_addr;
 	unsigned long long page_offset;
@@ -1243,79 +1246,84 @@ int pt_walk_disable(unsigned long long start, unsigned long long end, int level)
 	unsigned long long logical_addr;
 	unsigned long long i, j, k, l, t;
 	pgd = (level == 0) ? pgd_offset(current->mm, start) : pgd_offset_pgd(swapper_pg_dir, start);
+
 	i = start;
 	do {
 		ng = pgd_addr_end(i, end);
 		if (pgd_none(*pgd) || pgd_bad(*pgd)) return -1;
+		descriptor = pgd->pgd & desc_mask;
+		printk(KERN_DEBUG "*pgd: %llu", *pgd.pgd);
+		printk(KERN_DEBUG "pgd_val(pgd): %llu", pgd_val(*pgd));
+		printk(KERN_DEBUG "pgd descriptor: %d\n", descriptor);
+		if(descriptor == 3) {
+			printk(KERN_DEBUG "found block at pgd");
+		}
+		// handle huge pages
 		p4d = p4d_offset(pgd, i);
 		j = i;
 		do {
 			n4 = p4d_addr_end(j, ng);
 			if (p4d_none(*p4d) || p4d_bad(*p4d)) return -2;
+			descriptor = p4d->p4d & desc_mask;
+			printk(KERN_DEBUG "*p4d: %llu", *p4d.p4d);
+			printk(KERN_DEBUG "p4d_val(p4d): %llu", p4d_val(*p4d));
+			printk(KERN_DEBUG "p4d descriptor: %d\n", descriptor);
+			if(descriptor == 3) {
+				printk(KERN_DEBUG "found block at p4d");
+			}
+			// handle huge pages
 			pud = pud_offset(p4d, j);
 			k = j;
 			do{
 				nu = pud_addr_end(k, n4);
 				if(pud_none(*pud) || pud_bad(*pud)) return -3;
+				descriptor = pud->pud & desc_mask;
+				printk(KERN_DEBUG "*pud: %llu", *pud.pud);
+				printk(KERN_DEBUG "pud_val(pud): %llu", pud_val(*pud));
+				printk(KERN_DEBUG "pud descriptor: %d\n", descriptor);
+				if(descriptor == 3) {
+					printk(KERN_DEBUG "found block at pud");
+				}
+				// handle huge pages
 				pmd = pmd_offset(pud, k);
 				l = k;
 				do {
 					nm = pmd_addr_end(l, nu);
 					if(pmd_none(*pmd) || pmd_bad(*pmd)) return -4;
+					descriptor = pmd->pmd & desc_mask;
+					printk(KERN_DEBUG "*pmd: %llu", *pmd.pmd);
+					printk(KERN_DEBUG "pmd_val(pmd): %llu", pmd_val(*pmd));
+					printk(KERN_DEBUG "pmd descriptor: %d\n", descriptor);
+					if(descriptor == 3) {
+						printk(KERN_DEBUG "found block at pmd");
+					}
 					ptep = pte_offset_kernel(pmd, l);
+					if(!ptep){
+						printk(KERN_DEBUG "not ptep, continue\n");
+						continue;
+					}
+					descriptor = ptep->pte & desc_mask;
+					printk(KERN_DEBUG "*ptep: %llu", *ptep.pte);
+					printk(KERN_DEBUG "pte_val(pmd): %llu", pte_val(*ptep));
+					printk(KERN_DEBUG "pte descriptor: %d\n", descriptor);
+					if(descriptor == 3) {
+						printk(KERN_DEBUG "found block at pte");
+					}
 					t = l;
 					do{
 						page_addr = pte_val(*ptep) & PAGE_MASK;
 						page_offset = start & ~PAGE_MASK;
 						paddr = page_addr | page_offset;
 						logical_addr = paddr + PAGE_OFFSET;
+						printk(KERN_DEBUG "page_add = %llu\npage_offset = %llu\npaddr = %llu\n logical_addr = %llu\n", page_addr, page_offset, paddr, logical_addr);
 
-						lptep = pt_logical_to_pte(logical_addr);
-						*lptep = clear_pte_bit(*lptep, __pgprot(PTE_VALID));
+						//lptep = pt_logical_to_pte(logical_addr);
+						//*lptep = clear_pte_bit(*lptep, __pgprot(PTE_VALID));
 					} while (ptep++, t += PAGE_SIZE, t != nm && t < nm);
 				} while (pmd++, l = nm, l != nu);
 			} while (pud++, k = nu, k != n4);
 		} while(p4d++, j = n4, j != ng);
 	} while(pgd++, i = ng, i != end);
-
-			/*
-	for(unsigned long long i = start; i != end; i = ng) {
-		ng = pgd_addr_end(i, end);
-		if (pgd_none(*pgd) || pgd_bad(*pgd)) return -1;
-
-		p4d = p4d_offset(pgd, i);
-		for(unsigned long long j = i; j != ng; j = n4) {
-			n4 = p4d_addr_end(j, ng);
-			if (p4d_none(*p4d) || p4d_bad(*p4d)) return -2;
-
-			pud = pud_offset(p4d, j);
-			for(unsigned long long k = j; k != n4; k = nu) {
-				nu = pud_addr_end(k, n4);
-				if(pud_none(*pud) || pud_bad(*pud)) return -3;
-
-				pmd = pmd_offset(pud, k);
-				for(unsigned long long l = k; l != nu; l = nm) {
-					nm = pmd_addr_end(l, nu);
-					if(pmd_none(*pmd) || pmd_bad(*pmd)) return -4;
-
-					ptep = pte_offset_kernel(pmd, l);
-					page_addr = pte_val(*ptep) & PAGE_MASK;
-					page_offset = start & ~PAGE_MASK;
-					paddr = page_addr | page_offset;
-					
-					logical_address = paddr + PAGE_OFFSET;
-
-					if(level == 0) {
-						pt_disable_kernel_logical(logical_address);
-						
-					}
-				}
-				pud++;
-			}
-			p4d++;
-		}
-		pgd++;
-	}*/
 
 	return 0;
 }
