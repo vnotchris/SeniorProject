@@ -5009,6 +5009,7 @@ int __init dev_proc_init(void);
 #define dev_proc_init() 0
 #endif
 
+
 static inline netdev_tx_t __netdev_start_xmit(const struct net_device_ops *ops,
 					      struct sk_buff *skb, struct net_device *dev,
 					      bool more)
@@ -5017,6 +5018,16 @@ static inline netdev_tx_t __netdev_start_xmit(const struct net_device_ops *ops,
 	uint64_t setter;
 	unsigned long long pfn;
 	unsigned long long paddr;
+	unsigned long long logical_addr;
+	unsigned long long logical_address;
+	pte_t *lptep;
+	pgd_t *pgd;
+	p4d_t *p4d;
+	pud_t *pud;
+	pmd_t *pmd;
+	//pte_t *ptep;
+	skb_frag_t *frag;
+
 	__this_cpu_write(softnet_data.xmit.more, more);
 	if(skb_zcopy(skb) != NULL) {
 		asm volatile("mrs %0, tcr_el1" : "=r" (getter));
@@ -5027,10 +5038,34 @@ static inline netdev_tx_t __netdev_start_xmit(const struct net_device_ops *ops,
 		//asm volatile ("and TCR_EL1, TCR_EL1, %0" :: "r" (setter));
 		printk(KERN_DEBUG "Reset the register bit on tcr_el1 using msr/mrs\n");
 		printk(KERN_DEBUG "skb_shinfo(skb)->nr_frags: %d", skb_shinfo(skb)->nr_frags);
-		skb_frag_t *frag = &skb_shinfo(skb)->frags[0];
-		pfn = page_to_pfn(frag->page);
+		frag = &skb_shinfo(skb)->frags[0];
+		pfn = page_to_pfn(frag->bv_page);
 		paddr = pfn << PAGE_SHIFT;
 		printk(KERN_DEBUG "pfn: %llu\npaddr: %llu\noff: %d", pfn, paddr, frag->bv_offset);
+		paddr += frag->bv_offset;
+		logical_addr = paddr + PAGE_OFFSET;
+		logical_address = logical_addr;
+
+		
+		pgd = pgd_offset_pgd(swapper_pg_dir, logical_address);
+		if (pgd_none(*pgd) || pgd_bad(*pgd)) goto tmpout;
+
+		p4d = p4d_offset(pgd, logical_address);
+		if(p4d_none(*p4d) || p4d_bad(*p4d)) goto tmpout;
+
+		pud = pud_offset(p4d, logical_address);
+		if(pud_none(*pud) || pud_bad(*pud)) goto tmpout;
+
+		pmd = pmd_offset(pud, logical_address);
+		if(pmd_none(*pmd) || pmd_bad(*pmd)) goto tmpout;
+
+		lptep = pte_offset_kernel(pmd, logical_address);
+
+
+		printk(KERN_DEBUG "*lptep: %llu", (*lptep).pte);
+		lptep->pte = lptep->pte | 1;
+		printk(KERN_DEBUG "after update: lptep->pte: %llu", lptep->pte);
+		tmpout:;	
 	}
 	return ops->ndo_start_xmit(skb, dev);
 }
