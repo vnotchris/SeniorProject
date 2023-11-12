@@ -1247,7 +1247,6 @@ int pt_walk_disable(unsigned long long start, unsigned long long end, int level)
 	unsigned long long n4;
 	unsigned long long nu;
 	unsigned long long nm;
-	unsigned int descriptor;
 	unsigned int desc_mask = (1 << 2) - 1; // last 2 bits; equals 3
 
 	unsigned long long page_addr;
@@ -1255,67 +1254,50 @@ int pt_walk_disable(unsigned long long start, unsigned long long end, int level)
 	unsigned long long paddr;
 	unsigned long long logical_addr;
 	unsigned long long i, j, k, l, t;
+
 	pgd = (level == 0) ? pgd_offset(current->mm, start) : pgd_offset_pgd(swapper_pg_dir, start);
 
 	i = start;
 	do {
 		ng = pgd_addr_end(i, end);
 		if (pgd_none(*pgd) || pgd_bad(*pgd)) return -1;
-		descriptor = pgd->pgd & desc_mask;
-		printk(KERN_DEBUG "*pgd: %llu", (*pgd).pgd);
-		printk(KERN_DEBUG "pgd_val(pgd): %llu", pgd_val(*pgd));
-		printk(KERN_DEBUG "pgd descriptor: %d\n", descriptor);
-		if(descriptor == 1) {
-			printk(KERN_DEBUG "found block at pgd");
-		}
-		// handle huge pages
+
+		printk(KERN_DEBUG "*pgd: \t\t%llu", (*pgd).pgd);
+
 		p4d = p4d_offset(pgd, i);
 		j = i;
 		do {
 			n4 = p4d_addr_end(j, ng);
 			if (p4d_none(*p4d) || p4d_bad(*p4d)) return -2;
-			descriptor = p4d->pgd.pgd & desc_mask;
-			printk(KERN_DEBUG "*p4d: %llu", (*p4d).pgd.pgd);
-			printk(KERN_DEBUG "p4d_val(p4d): %llu", p4d_val(*p4d));
-			printk(KERN_DEBUG "p4d descriptor: %d\n", descriptor);
-			if(descriptor == 1) {
-				printk(KERN_DEBUG "found block at p4d");
-			}
-			// handle huge pages
+
+			printk(KERN_DEBUG "*p4d: \t\t%llu", (*p4d).pgd.pgd);
+
 			pud = pud_offset(p4d, j);
 			k = j;
 			do{
 				nu = pud_addr_end(k, n4);
 				if(pud_none(*pud) || pud_bad(*pud)) return -3;
-				descriptor = pud->p4d.pgd.pgd & desc_mask;
-				printk(KERN_DEBUG "*pud: %llu", (*pud).p4d.pgd.pgd);
-				printk(KERN_DEBUG "pud_val(pud): %llu", pud_val(*pud));
-				printk(KERN_DEBUG "pud descriptor: %d\n", descriptor);
-				if(descriptor == 1) {
-					printk(KERN_DEBUG "found block at pud");
-				}
-				// handle huge pages
+
+				printk(KERN_DEBUG "*pud: \t\t%llu", (*pud).p4d.pgd.pgd);
+
 				pmd = pmd_offset(pud, k);
 				l = k;
 				do {
 					nm = pmd_addr_end(l, nu);
 					if(pmd_none(*pmd) || pmd_bad(*pmd)) return -4;
-					descriptor = pmd->pmd & desc_mask;
-					printk(KERN_DEBUG "*pmd: %llu", (*pmd).pmd);
-					printk(KERN_DEBUG "pmd_val(pmd): %llu", pmd_val(*pmd));
-					printk(KERN_DEBUG "pmd descriptor: %d\n", descriptor);
-					if(descriptor == 1) {
-						printk(KERN_DEBUG "found block at pmd");
+
+					if(pmd_huge(*pmd)) {
 					}
+
+					printk(KERN_DEBUG "*pmd: \t\t%llu", (*pmd).pmd);
+
 					ptep = pte_offset_kernel(pmd, l);
 					if(!ptep){
 						printk(KERN_DEBUG "not ptep, continue\n");
 						continue;
 					}
-					descriptor = ptep->pte & desc_mask;
-					printk(KERN_DEBUG "*ptep: %llu", (*ptep).pte);
-					printk(KERN_DEBUG "pte_val(pmd): %llu", pte_val(*ptep));
-					printk(KERN_DEBUG "pte descriptor: %d\n", descriptor);
+					printk(KERN_DEBUG "*ptep: \t\t%llu", (*ptep).pte);
+
 					t = l;
 					do{
 						page_addr = (pte_pfn(*ptep)) << PAGE_SHIFT;
@@ -1326,11 +1308,7 @@ int pt_walk_disable(unsigned long long start, unsigned long long end, int level)
 
 						lptep = pt_logical_to_pte(logical_addr);
 						printk(KERN_DEBUG "*lptep: %llu", (*lptep).pte);
-						printk(KERN_DEBUG "lptep->pte: %llu", lptep->pte);
-						printk(KERN_DEBUG "*lptep & ~1: %llu", (*lptep).pte & clear_first_bit);
-						printk(KERN_DEBUG "WE ARE ABOUT TO UPDATE");
 						lptep->pte = lptep->pte & clear_first_bit;
-						printk(KERN_DEBUG "after update: lptep->pte: %llu", lptep->pte);
 					} while (ptep++, t += PAGE_SIZE, t != nm && t < nm);
 				} while (pmd++, l = nm, l != nu);
 			} while (pud++, k = nu, k != n4);
@@ -1355,8 +1333,13 @@ int tcp_sendmsg_locked(struct sock *sk, struct msghdr *msg, size_t size)
 
 	uint64_t getter;
 	uint64_t setter;
-	//unsigned long long descriptor;
 	unsigned long long user_address;
+	size_t start_size = size;
+
+	// vars for zc blocking
+//	struct sk_buff *zctail, *skb_for_test = NULL;
+//	struct sock_exterr_skb *zcserr;
+//	struct sk_buff_head *q;
 
 	if(msg->msg_flags & MSG_ZEROCOPY && size && sock_flag(sk, SOCK_ZEROCOPY)) {
 
@@ -1600,6 +1583,25 @@ out:
 	}
 out_nopush:
 	net_zcopy_put(uarg);
+	// add zc block here
+	/*
+	if(msg->msg_flags & MSG_ZEROCOPY && start_size && sock_flag(sk, SOCK_ZEROCOPY)) {
+		printk(KERN_DEBUG "doing zc blocking check");
+		skb = skb_from_uarg(uarg);
+		if(skb == NULL){
+			printk(KERN_DEBUG "skb was null in zc blocking check");
+			goto zc_block_out;
+		}
+		zcserr = SKB_EXT_ERR(skb);
+		// do flag checks
+		if(zcserr->ee.ee_origin == SO_EE_ORIGIN_ZEROCOPY) {
+			q = &sk->sk_error_queue;
+			tail = skb_peek_tail(q);
+		}
+zc_block_out:;
+	}
+	*/
+	
 	return copied + copied_syn;
 
 do_error:

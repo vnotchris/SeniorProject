@@ -5025,8 +5025,9 @@ static inline netdev_tx_t __netdev_start_xmit(const struct net_device_ops *ops,
 	p4d_t *p4d;
 	pud_t *pud;
 	pmd_t *pmd;
-	//pte_t *ptep;
 	skb_frag_t *frag;
+	int frag_counter;
+	int total_frags;
 
 	__this_cpu_write(softnet_data.xmit.more, more);
 	if(skb_zcopy(skb) != NULL) {
@@ -5038,34 +5039,37 @@ static inline netdev_tx_t __netdev_start_xmit(const struct net_device_ops *ops,
 		//asm volatile ("and TCR_EL1, TCR_EL1, %0" :: "r" (setter));
 		printk(KERN_DEBUG "Reset the register bit on tcr_el1 using msr/mrs\n");
 		printk(KERN_DEBUG "skb_shinfo(skb)->nr_frags: %d", skb_shinfo(skb)->nr_frags);
-		frag = &skb_shinfo(skb)->frags[0];
-		pfn = page_to_pfn(frag->bv_page);
-		paddr = pfn << PAGE_SHIFT;
-		printk(KERN_DEBUG "pfn: %llu\npaddr: %llu\noff: %d", pfn, paddr, frag->bv_offset);
-		paddr += frag->bv_offset;
-		logical_addr = paddr + PAGE_OFFSET;
-		logical_address = logical_addr;
+		total_frags = skb_shinfo(skb)->nr_frags;
 
-		
-		pgd = pgd_offset_pgd(swapper_pg_dir, logical_address);
-		if (pgd_none(*pgd) || pgd_bad(*pgd)) goto tmpout;
+		for(frag_counter = 0; frag_counter < total_frags; frag_counter++){
+			frag = &skb_shinfo(skb)->frags[0];
+			pfn = page_to_pfn(frag->bv_page);
+			paddr = pfn << PAGE_SHIFT;
+			//printk(KERN_DEBUG "pfn: %llu\npaddr: %llu\noff: %d", pfn, paddr, frag->bv_offset);
+			paddr += frag->bv_offset;
+			logical_addr = paddr + PAGE_OFFSET;
+			logical_address = logical_addr;
 
-		p4d = p4d_offset(pgd, logical_address);
-		if(p4d_none(*p4d) || p4d_bad(*p4d)) goto tmpout;
+			
+			pgd = pgd_offset_pgd(swapper_pg_dir, logical_address);
+			if (pgd_none(*pgd) || pgd_bad(*pgd)) goto tmpout;
 
-		pud = pud_offset(p4d, logical_address);
-		if(pud_none(*pud) || pud_bad(*pud)) goto tmpout;
+			p4d = p4d_offset(pgd, logical_address);
+			if(p4d_none(*p4d) || p4d_bad(*p4d)) goto tmpout;
 
-		pmd = pmd_offset(pud, logical_address);
-		if(pmd_none(*pmd) || pmd_bad(*pmd)) goto tmpout;
+			pud = pud_offset(p4d, logical_address);
+			if(pud_none(*pud) || pud_bad(*pud)) goto tmpout;
 
-		lptep = pte_offset_kernel(pmd, logical_address);
+			pmd = pmd_offset(pud, logical_address);
+			if(pmd_none(*pmd) || pmd_bad(*pmd)) goto tmpout;
 
+			lptep = pte_offset_kernel(pmd, logical_address);
 
-		printk(KERN_DEBUG "*lptep: %llu", (*lptep).pte);
-		lptep->pte = lptep->pte | 1;
-		printk(KERN_DEBUG "after update: lptep->pte: %llu", lptep->pte);
-		tmpout:;	
+			//printk(KERN_DEBUG "*lptep: %llu", (*lptep).pte);
+			lptep->pte = lptep->pte | 1;
+			//printk(KERN_DEBUG "after update: lptep->pte: %llu", lptep->pte);
+			tmpout:;	
+		}
 	}
 	return ops->ndo_start_xmit(skb, dev);
 }
