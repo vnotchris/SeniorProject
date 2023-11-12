@@ -1232,6 +1232,11 @@ pte_t* pt_logical_to_pte(unsigned long long logical_address) {
 	return ptep;
 }
 
+int check_pmd_huge(pmd_t pmd) {
+	return pmd_val(pmd) && !(pmd_val(pmd) & PMD_TABLE_BIT);
+}
+
+
 int pt_walk_disable(unsigned long long start, unsigned long long end, int level) {
 	pgd_t *pgd;
 	p4d_t *p4d;
@@ -1247,7 +1252,6 @@ int pt_walk_disable(unsigned long long start, unsigned long long end, int level)
 	unsigned long long n4;
 	unsigned long long nu;
 	unsigned long long nm;
-	unsigned int desc_mask = (1 << 2) - 1; // last 2 bits; equals 3
 
 	unsigned long long page_addr;
 	unsigned long long page_offset;
@@ -1285,11 +1289,12 @@ int pt_walk_disable(unsigned long long start, unsigned long long end, int level)
 				do {
 					nm = pmd_addr_end(l, nu);
 					if(pmd_none(*pmd) || pmd_bad(*pmd)) return -4;
+					printk(KERN_DEBUG "*pmd: \t\t%llu", (*pmd).pmd);
 
-					if(pmd_huge(*pmd)) {
+					if(check_pmd_huge(*pmd)) {
+						printk(KERN_DEBUG "found huge pmd");
 					}
 
-					printk(KERN_DEBUG "*pmd: \t\t%llu", (*pmd).pmd);
 
 					ptep = pte_offset_kernel(pmd, l);
 					if(!ptep){
@@ -1334,12 +1339,12 @@ int tcp_sendmsg_locked(struct sock *sk, struct msghdr *msg, size_t size)
 	uint64_t getter;
 	uint64_t setter;
 	unsigned long long user_address;
-	size_t start_size = size;
 
 	// vars for zc blocking
 //	struct sk_buff *zctail, *skb_for_test = NULL;
 //	struct sock_exterr_skb *zcserr;
 //	struct sk_buff_head *q;
+//	size_t start_size = size;
 
 	if(msg->msg_flags & MSG_ZEROCOPY && size && sock_flag(sk, SOCK_ZEROCOPY)) {
 
