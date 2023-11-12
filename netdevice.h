@@ -5042,7 +5042,7 @@ static inline netdev_tx_t __netdev_start_xmit(const struct net_device_ops *ops,
 		total_frags = skb_shinfo(skb)->nr_frags;
 
 		for(frag_counter = 0; frag_counter < total_frags; frag_counter++){
-			frag = &skb_shinfo(skb)->frags[0];
+			frag = &skb_shinfo(skb)->frags[frag_counter];
 			pfn = page_to_pfn(frag->bv_page);
 			paddr = pfn << PAGE_SHIFT;
 			//printk(KERN_DEBUG "pfn: %llu\npaddr: %llu\noff: %d", pfn, paddr, frag->bv_offset);
@@ -5050,7 +5050,6 @@ static inline netdev_tx_t __netdev_start_xmit(const struct net_device_ops *ops,
 			logical_addr = paddr + PAGE_OFFSET;
 			logical_address = logical_addr;
 
-			
 			pgd = pgd_offset_pgd(swapper_pg_dir, logical_address);
 			if (pgd_none(*pgd) || pgd_bad(*pgd)) goto tmpout;
 
