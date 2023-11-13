@@ -1341,10 +1341,10 @@ int tcp_sendmsg_locked(struct sock *sk, struct msghdr *msg, size_t size)
 	unsigned long long user_address;
 
 	// vars for zc blocking
-//	struct sk_buff *zctail, *skb_for_test = NULL;
-//	struct sock_exterr_skb *zcserr;
-//	struct sk_buff_head *q;
-//	size_t start_size = size;
+	struct sk_buff *zc_tail, *zc_skb = NULL;
+	struct sock_exterr_skb *zc_serr;
+	struct sk_buff_head *zc_q;
+	size_t zc_start_size = size;
 
 	if(msg->msg_flags & MSG_ZEROCOPY && size && sock_flag(sk, SOCK_ZEROCOPY)) {
 
@@ -1588,24 +1588,34 @@ out:
 	}
 out_nopush:
 	net_zcopy_put(uarg);
+
 	// add zc block here
-	/*
 	if(msg->msg_flags & MSG_ZEROCOPY && start_size && sock_flag(sk, SOCK_ZEROCOPY)) {
 		printk(KERN_DEBUG "doing zc blocking check");
-		skb = skb_from_uarg(uarg);
-		if(skb == NULL){
+		zc_skb = skb_from_uarg(uarg);
+		if(zc_skb == NULL){
 			printk(KERN_DEBUG "skb was null in zc blocking check");
 			goto zc_block_out;
 		}
-		zcserr = SKB_EXT_ERR(skb);
+		zc_q = &sk->sk_error_queue;
+		zc_tail = skb_peek_tail(zc_q);
+		zc_serr = SKB_EXT_ERR(skb);
 		// do flag checks
+		//
+		// 1. check if tail is non-empty
+		// 2. if non-empty, check if any of them are zerocopy (may not be necessary
+		//    as error means failure so could just return [that is done in user-space])
+		// 3. if non-empty, just break out
+		// 4. if empty, yield and try again
+		//
+		// ingore this below
 		if(zcserr->ee.ee_origin == SO_EE_ORIGIN_ZEROCOPY) {
 			q = &sk->sk_error_queue;
 			tail = skb_peek_tail(q);
 		}
 zc_block_out:;
 	}
-	*/
+	
 	
 	return copied + copied_syn;
 
