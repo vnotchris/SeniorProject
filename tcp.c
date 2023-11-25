@@ -268,6 +268,8 @@
 #include <linux/errqueue.h>
 #include <linux/static_key.h>
 #include <linux/btf.h>
+// my change below
+#include <linux/sched.h>
 
 #include <net/icmp.h>
 #include <net/inet_common.h>
@@ -1345,6 +1347,7 @@ int tcp_sendmsg_locked(struct sock *sk, struct msghdr *msg, size_t size)
 	struct sock_exterr_skb *zc_serr;
 	struct sk_buff_head *zc_q;
 	size_t zc_start_size = size;
+	int zc_checker = false;
 
 	if(msg->msg_flags & MSG_ZEROCOPY && size && sock_flag(sk, SOCK_ZEROCOPY)) {
 
@@ -1353,7 +1356,7 @@ int tcp_sendmsg_locked(struct sock *sk, struct msghdr *msg, size_t size)
 		
 		asm volatile("mrs %0, tcr_el1" : "=r" (getter));
 		setter = getter | (1 << 7);
-		printk(KERN_DEBUG "In tcpsendmsg:\ngetter: %llu\nsetter: %llu\n", getter, setter);
+		//printk(KERN_DEBUG "In tcpsendmsg:\ngetter: %llu\nsetter: %llu\n", getter, setter);
 		asm volatile("msr tcr_el1, %0" :: "r" (setter));
 		//asm volatile ("orr ttbcr_el1, ttbcr_el1, %0" :: "r" (setter));
 		//asm volatile ("orr TCR_EL1, TCR_EL1, %0" :: "r" (0x80));
@@ -1609,10 +1612,23 @@ out_nopush:
 		// 4. if empty, yield and try again
 		//
 		// ingore this below
-		if(zcserr->ee.ee_origin == SO_EE_ORIGIN_ZEROCOPY) {
-			q = &sk->sk_error_queue;
-			tail = skb_peek_tail(q);
+		if(!zc_tail) {
+			schedule();
 		}
+
+		struct sk_buff* error_walker;
+		if(zc_tail && !zc_checker) {
+			do {
+				error_walker = skb_peek(zc_q);
+				if(SKB_EXT_ERR(error_walker)->ee.ee_origin) {
+					zc_checker = true;
+					break;
+				}
+
+			} while (error_walker != zc_tail)
+			schedule();
+		}
+
 zc_block_out:;
 	}
 	
