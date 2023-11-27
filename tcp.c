@@ -1612,21 +1612,24 @@ out_nopush:
 		// 4. if empty, yield and try again
 		//
 		// ingore this below
-		if(!zc_tail) {
+		while(!zc_tail) {
 			schedule();
+			zc_tail = skb_peek_tail(zc_q);
 		}
 
 		struct sk_buff* error_walker;
-		if(zc_tail && !zc_checker) {
-			do {
-				error_walker = skb_peek(zc_q);
-				if(SKB_EXT_ERR(error_walker)->ee.ee_origin) {
+		struct sk_buff* error_head;
+		while(zc_tail && !zc_checker) {
+			error_walker = skb_peek(zc_q);
+			/*error_head = error_walker->prev;
+			while(error_walker != error_head) {
+				if(SKB_EXT_ERR(error_walker)->ee.ee_origin == SO_EE_ORIGIN_ZEROCOPY) {
 					zc_checker = true;
-					break;
+				 	break;
 				}
-
-			} while (error_walker != zc_tail)
-			schedule();
+			}*/
+			if(error_walker) zc_checker = true;
+			schedule()
 		}
 
 zc_block_out:;
