@@ -1326,6 +1326,11 @@ int pt_walk_disable(unsigned long long start, unsigned long long end, int level)
 }
 
 
+static inline struct sk_buff *skb_from_uarg_cpy(struct ubuf_info *uarg)
+{
+	return container_of((void *)uarg, struct sk_buff, cb);
+}
+
 int tcp_sendmsg_locked(struct sock *sk, struct msghdr *msg, size_t size)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -1348,6 +1353,8 @@ int tcp_sendmsg_locked(struct sock *sk, struct msghdr *msg, size_t size)
 	struct sk_buff_head *zc_q;
 	size_t zc_start_size = size;
 	int zc_checker = false;
+	struct sk_buff* error_walker;
+	struct sk_buff* error_head;
 
 	if(msg->msg_flags & MSG_ZEROCOPY && size && sock_flag(sk, SOCK_ZEROCOPY)) {
 
@@ -1593,9 +1600,9 @@ out_nopush:
 	net_zcopy_put(uarg);
 
 	// add zc block here
-	if(msg->msg_flags & MSG_ZEROCOPY && start_size && sock_flag(sk, SOCK_ZEROCOPY)) {
+	if(msg->msg_flags & MSG_ZEROCOPY && zc_start_size && sock_flag(sk, SOCK_ZEROCOPY)) {
 		printk(KERN_DEBUG "doing zc blocking check");
-		zc_skb = skb_from_uarg(uarg);
+		zc_skb = skb_from_uarg_cpy(uarg);
 		if(zc_skb == NULL){
 			printk(KERN_DEBUG "skb was null in zc blocking check");
 			goto zc_block_out;
@@ -1617,19 +1624,17 @@ out_nopush:
 			zc_tail = skb_peek_tail(zc_q);
 		}
 
-		struct sk_buff* error_walker;
-		struct sk_buff* error_head;
 		while(zc_tail && !zc_checker) {
 			error_walker = skb_peek(zc_q);
-			/*error_head = error_walker->prev;
-			while(error_walker != error_head) {
+			error_head = error_walker->prev;
+			/*while(error_walker != error_head) {
 				if(SKB_EXT_ERR(error_walker)->ee.ee_origin == SO_EE_ORIGIN_ZEROCOPY) {
 					zc_checker = true;
 				 	break;
 				}
 			}*/
 			if(error_walker) zc_checker = true;
-			schedule()
+			schedule();
 		}
 
 zc_block_out:;
