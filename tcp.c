@@ -269,7 +269,9 @@
 #include <linux/static_key.h>
 #include <linux/btf.h>
 // my change below
+//#include "../../kernel/sched/sched.h"
 #include <linux/sched.h>
+#include <linux/delay.h>
 
 #include <net/icmp.h>
 #include <net/inet_common.h>
@@ -1212,25 +1214,20 @@ pte_t* pt_logical_to_pte(unsigned long long logical_address) {
 	pgd = pgd_offset_pgd(swapper_pg_dir, logical_address);
 	if (pgd_none(*pgd) || pgd_bad(*pgd)) return NULL;
 	printk(KERN_DEBUG "*pgd: %llu", (*pgd).pgd);
-	printk(KERN_DEBUG "pgd_val(pgd): %llu", pgd_val(*pgd));
 
 	p4d = p4d_offset(pgd, logical_address);
 	if(p4d_none(*p4d) || p4d_bad(*p4d)) return NULL;
 	printk(KERN_DEBUG "*p4d: %llu", (*p4d).pgd.pgd);
-	printk(KERN_DEBUG "p4d_val(p4d): %llu", p4d_val(*p4d));
 
 	pud = pud_offset(p4d, logical_address);
 	if(pud_none(*pud) || pud_bad(*pud)) return NULL;
 	printk(KERN_DEBUG "*pud: %llu", (*pud).p4d.pgd.pgd);
-	printk(KERN_DEBUG "pud_val(pud): %llu", pud_val(*pud));
 
 	pmd = pmd_offset(pud, logical_address);
 	if(pmd_none(*pmd) || pmd_bad(*pmd)) return NULL;
 	printk(KERN_DEBUG "*pmd: %llu", (*pmd).pmd);
-	printk(KERN_DEBUG "pmd_val(pmd): %llu", pmd_val(*pmd));
 
 	ptep = pte_offset_kernel(pmd, logical_address);
-	//*ptep = clear_pte_bit(*ptep, __pgprot(PTE_VALID));
 	return ptep;
 }
 
@@ -1247,7 +1244,6 @@ int pt_walk_disable(unsigned long long start, unsigned long long end, int level)
 	pte_t *ptep;
 
 	pte_t *lptep;
-
 
 	unsigned long long clear_first_bit = ~(1);
 	unsigned long long ng;
@@ -1314,6 +1310,7 @@ int pt_walk_disable(unsigned long long start, unsigned long long end, int level)
 						printk(KERN_DEBUG "page_addr = %llu\npage_offset = %llu\npaddr = %llu\n logical_addr = %llu\n", page_addr, page_offset, paddr, logical_addr);
 
 						lptep = pt_logical_to_pte(logical_addr);
+						if(lptep == NULL) return -10;
 						printk(KERN_DEBUG "*lptep: %llu", (*lptep).pte);
 						lptep->pte = lptep->pte & clear_first_bit;
 					} while (ptep++, t += PAGE_SIZE, t != nm && t < nm);
@@ -1330,6 +1327,7 @@ static inline struct sk_buff *skb_from_uarg_cpy(struct ubuf_info *uarg)
 {
 	return container_of((void *)uarg, struct sk_buff, cb);
 }
+
 
 int tcp_sendmsg_locked(struct sock *sk, struct msghdr *msg, size_t size)
 {
@@ -1355,18 +1353,19 @@ int tcp_sendmsg_locked(struct sock *sk, struct msghdr *msg, size_t size)
 	int zc_checker = false;
 	struct sk_buff* error_walker;
 	struct sk_buff* error_head;
+	int zc_sock = false;
 
 	if(msg->msg_flags & MSG_ZEROCOPY && size && sock_flag(sk, SOCK_ZEROCOPY)) {
+		zc_sock = true;
 
 		printk(KERN_DEBUG "At start of tcp_sendmsg_locked using msr/mrs\n");
 		printk(KERN_DEBUG "Setting EPD0 bit on TCR_EL1 to 1\n");
 		
+		// pull, modify, set register
+		// flush tlb
 		asm volatile("mrs %0, tcr_el1" : "=r" (getter));
 		setter = getter | (1 << 7);
-		//printk(KERN_DEBUG "In tcpsendmsg:\ngetter: %llu\nsetter: %llu\n", getter, setter);
 		asm volatile("msr tcr_el1, %0" :: "r" (setter));
-		//asm volatile ("orr ttbcr_el1, ttbcr_el1, %0" :: "r" (setter));
-		//asm volatile ("orr TCR_EL1, TCR_EL1, %0" :: "r" (0x80));
 		flush_tlb_all();
 
 		printk(KERN_DEBUG "Setting PTE for user VA to not present\n");
@@ -1600,11 +1599,11 @@ out_nopush:
 	net_zcopy_put(uarg);
 
 	// add zc block here
-	if(msg->msg_flags & MSG_ZEROCOPY && zc_start_size && sock_flag(sk, SOCK_ZEROCOPY)) {
-		printk(KERN_DEBUG "doing zc blocking check");
+	// prototype for adding "block until complete" functionality
+	// break added to loops to prevent never-ending busy-wait
+	if(zc_sock) {
 		zc_skb = skb_from_uarg_cpy(uarg);
 		if(zc_skb == NULL){
-			printk(KERN_DEBUG "skb was null in zc blocking check");
 			goto zc_block_out;
 		}
 		zc_q = &sk->sk_error_queue;
@@ -1620,21 +1619,26 @@ out_nopush:
 		//
 		// ingore this below
 		while(!zc_tail) {
+			goto zc_block_out;
+			mdelay(50);
 			schedule();
 			zc_tail = skb_peek_tail(zc_q);
+			break;
 		}
 
 		while(zc_tail && !zc_checker) {
 			error_walker = skb_peek(zc_q);
 			error_head = error_walker->prev;
-			/*while(error_walker != error_head) {
+			while(error_walker != error_head) {
 				if(SKB_EXT_ERR(error_walker)->ee.ee_origin == SO_EE_ORIGIN_ZEROCOPY) {
 					zc_checker = true;
 				 	break;
 				}
-			}*/
+			}
 			if(error_walker) zc_checker = true;
+			mdelay(50);
 			schedule();
+			break;
 		}
 
 zc_block_out:;

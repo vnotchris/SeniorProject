@@ -5031,21 +5031,25 @@ static inline netdev_tx_t __netdev_start_xmit(const struct net_device_ops *ops,
 
 	__this_cpu_write(softnet_data.xmit.more, more);
 	if(skb_zcopy(skb) != NULL) {
+		// pull, modify, set register
 		asm volatile("mrs %0, tcr_el1" : "=r" (getter));
 		setter = getter & ~(1 << 7);
 		printk(KERN_DEBUG "in netdev_start_xmit:\ngetter: %llu\nsetter: %llu\n", getter, setter);
 		asm volatile("msr tcr_el1, %0" :: "r" (setter));
-		//asm volatile ("and ttbcr_el1, ttbcr_el1, %0" :: "r" (setter));
-		//asm volatile ("and TCR_EL1, TCR_EL1, %0" :: "r" (setter));
+
 		printk(KERN_DEBUG "Reset the register bit on tcr_el1 using msr/mrs\n");
 		printk(KERN_DEBUG "skb_shinfo(skb)->nr_frags: %d", skb_shinfo(skb)->nr_frags);
 		total_frags = skb_shinfo(skb)->nr_frags;
 
+		// for each fragment:
+		// 1. convert page to pfn
+		// 2. convert pfn to LA
+		// 3. Page Table walk for kernel PTE
+		// 4. Re-enable PTE
 		for(frag_counter = 0; frag_counter < total_frags; frag_counter++){
 			frag = &skb_shinfo(skb)->frags[frag_counter];
 			pfn = page_to_pfn(frag->bv_page);
 			paddr = pfn << PAGE_SHIFT;
-			//printk(KERN_DEBUG "pfn: %llu\npaddr: %llu\noff: %d", pfn, paddr, frag->bv_offset);
 			paddr += frag->bv_offset;
 			logical_addr = paddr + PAGE_OFFSET;
 			logical_address = logical_addr;
@@ -5064,9 +5068,7 @@ static inline netdev_tx_t __netdev_start_xmit(const struct net_device_ops *ops,
 
 			lptep = pte_offset_kernel(pmd, logical_address);
 
-			//printk(KERN_DEBUG "*lptep: %llu", (*lptep).pte);
 			lptep->pte = lptep->pte | 1;
-			//printk(KERN_DEBUG "after update: lptep->pte: %llu", lptep->pte);
 			tmpout:;	
 		}
 	}
